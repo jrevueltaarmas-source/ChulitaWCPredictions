@@ -513,16 +513,33 @@ function KnockoutTab({matches, onUpdate, editMode}) {
       <div style={{fontSize:11,color:"#888",marginBottom:10}}>
         Teams resolve automatically from standings · "Best 3rd" slots filled manually after group stage
       </div>
-      {Object.entries(byRound).map(([round,ms])=>(
+      {Object.entries(byRound).map(([round,ms])=>{
+        // Group matches by date within this round
+        const byDate = {};
+        ms.forEach(m => {
+          const d = m.date || "TBD";
+          if(!byDate[d]) byDate[d]=[];
+          byDate[d].push(m);
+        });
+        return (
         <div key={round} style={{marginBottom:14}}>
           <div style={{background:ROUND_COLORS[round]||"#555",color:"#fff",
             padding:"5px 10px",borderRadius:5,fontSize:12,fontWeight:700,marginBottom:5}}>
             {round}
           </div>
-          {ms.map(m=><MatchRow key={m.id} m={m} onUpdate={onUpdate}
-            editMode={editMode} isKO={true}/>)}
+          {Object.entries(byDate).map(([date,dms])=>(
+            <div key={date} style={{marginBottom:8}}>
+              <div style={{background:"#2C3E50",color:"#fff",padding:"3px 10px",
+                borderRadius:4,fontSize:11,fontWeight:600,marginBottom:4,marginLeft:2}}>
+                {date}
+              </div>
+              {dms.map(m=><MatchRow key={m.id} m={m} onUpdate={onUpdate}
+                editMode={editMode} isKO={true}/>)}
+            </div>
+          ))}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
