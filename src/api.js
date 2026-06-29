@@ -20,7 +20,12 @@ function normTeam(name) {
 }
 
 function parseGames(raw) {
-  const games = Array.isArray(raw) ? raw : (raw.games || raw.matches || raw.data || raw.response || []);
+  let data = raw;
+  // allorigins wraps response in {contents: "..."}
+  if (data && typeof data.contents === "string") {
+    try { data = JSON.parse(data.contents); } catch { /* keep as is */ }
+  }
+  const games = Array.isArray(data) ? data : (data.games || data.matches || data.data || data.response || []);
   return games
     .map(g => {
       const home = normTeam(g.home_team?.name || g.home_team || g.home || g.homeTeam ||
@@ -40,10 +45,12 @@ function parseGames(raw) {
                  g.goalsAway !== null && !isNaN(g.goalsAway));
 }
 
+const TARGET = "https://worldcup26.ir/get/games";
 const SOURCES = [
-  "https://worldcup26.ir/get/games",
-  "https://corsproxy.io/?url=" + encodeURIComponent("https://worldcup26.ir/get/games"),
-  "https://api.allorigins.win/raw?url=" + encodeURIComponent("https://worldcup26.ir/get/games"),
+  "https://api.allorigins.win/get?url=" + encodeURIComponent(TARGET),
+  "https://api.codetabs.com/v1/proxy/?quest=" + TARGET,
+  "https://thingproxy.freeboard.io/fetch/" + TARGET,
+  TARGET,
 ];
 
 export async function fetchResults() {
