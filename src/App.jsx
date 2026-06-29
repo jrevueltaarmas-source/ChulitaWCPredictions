@@ -186,11 +186,22 @@ export default function App() {
           if (prev[m.id]?.goals_home !== gh || prev[m.id]?.goals_away !== ga) {
             next[m.id] = { ...(prev[m.id] || {}), goals_home: gh, goals_away: ga };
             changed = true;
-            // Save to Supabase
-            supabase.from("matches").upsert({
-              id: m.id, type: "gs", goals_home: gh, goals_away: ga,
-              joaquin: prev[m.id]?.joaquin || "", giada: prev[m.id]?.giada || ""
-            }, { onConflict: "id" }).then(() => {});
+            // Update ONLY the goal columns — never touch predictions.
+            // Use update if row exists, else insert a minimal row.
+            (async () => {
+              const { data: existing } = await supabase
+                .from("matches").select("id").eq("id", m.id).maybeSingle();
+              if (existing) {
+                await supabase.from("matches")
+                  .update({ goals_home: gh, goals_away: ga })
+                  .eq("id", m.id);
+              } else {
+                await supabase.from("matches").insert({
+                  id: m.id, type: "gs", goals_home: gh, goals_away: ga,
+                  joaquin: "", giada: ""
+                });
+              }
+            })();
           }
         });
         return changed ? next : prev;
@@ -222,11 +233,23 @@ export default function App() {
           if (prev[m.id]?.goals_home !== gh || prev[m.id]?.goals_away !== ga) {
             next[m.id] = { ...(prev[m.id] || {}), goals_home: gh, goals_away: ga };
             changed = true;
-            supabase.from("matches").upsert({
-              id: m.id, type: "ko", goals_home: gh, goals_away: ga,
-              joaquin: prev[m.id]?.joaquin || "", giada: prev[m.id]?.giada || "",
-              home_team: m.homeTeam, away_team: m.awayTeam
-            }, { onConflict: "id" }).then(() => {});
+            // Update ONLY goals + team names — never touch predictions.
+            (async () => {
+              const { data: existing } = await supabase
+                .from("matches").select("id").eq("id", m.id).maybeSingle();
+              if (existing) {
+                await supabase.from("matches")
+                  .update({ goals_home: gh, goals_away: ga,
+                            home_team: m.homeTeam, away_team: m.awayTeam })
+                  .eq("id", m.id);
+              } else {
+                await supabase.from("matches").insert({
+                  id: m.id, type: "ko", goals_home: gh, goals_away: ga,
+                  joaquin: "", giada: "",
+                  home_team: m.homeTeam, away_team: m.awayTeam
+                });
+              }
+            })();
           }
         });
         return changed ? next : prev;
@@ -240,11 +263,51 @@ export default function App() {
   const debouncedSave = useCallback(async (id, type, fields) => {
     setSaving(true);
     try {
-      await upsertMatch({ id, type, ...fields });
+      // Only ever write prediction columns from the UI.
+      // Goals are owned by the API sync, so we never overwrite them here.
+      const { data: existing } = await supabase
+        .from("matches").select("id").eq("id", id).maybeSingle();
+      if (existing) {
+        await supabase.from("matches")
+          .update({ joaquin: fields.joaquin ?? "", giada: fields.giada ?? "" })
+          .eq("id", id);
+      } else {
+        await supabase.from("matches").insert({
+          id, type,
+          joaquin: fields.joaquin ?? "", giada: fields.giada ?? "",
+          goals_home: null, goals_away: null,
+          ...(fields.home_team ? { home_team: fields.home_team } : {}),
+          ...(fields.away_team ? { away_team: fields.away_team } : {}),
+        });
+      }
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       console.error("Save error:", e);
+    }
+    setSaving(false);
+  }, []);
+
+  // Save goals manually entered in edit mode (owns goal columns)
+  const saveGoals = useCallback(async (id, type, gh, ga, extra={}) => {
+    setSaving(true);
+    try {
+      const { data: existing } = await supabase
+        .from("matches").select("id").eq("id", id).maybeSingle();
+      if (existing) {
+        await supabase.from("matches")
+          .update({ goals_home: gh ?? null, goals_away: ga ?? null, ...extra })
+          .eq("id", id);
+      } else {
+        await supabase.from("matches").insert({
+          id, type, goals_home: gh ?? null, goals_away: ga ?? null,
+          joaquin: "", giada: "", ...extra
+        });
+      }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      console.error("Save goals error:", e);
     }
     setSaving(false);
   }, []);
@@ -254,34 +317,40 @@ export default function App() {
       const updated = { ...prev[id], [field]: val };
       const next = { ...prev, [id]: updated };
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() =>
-        debouncedSave(id, "gs", {
-          goals_home: next[id].goals_home ?? null,
-          goals_away: next[id].goals_away ?? null,
-          joaquin: next[id].joaquin || "",
-          giada: next[id].giada || ""
-        }), 600);
+      const isGoal = field === "goals_home" || field === "goals_away";
+      saveTimer.current = setTimeout(() => {
+        if (isGoal) {
+          saveGoals(id, "gs", next[id].goals_home ?? null, next[id].goals_away ?? null);
+        } else {
+          debouncedSave(id, "gs", {
+            joaquin: next[id].joaquin || "", giada: next[id].giada || ""
+          });
+        }
+      }, 600);
       return next;
     });
-  }, [debouncedSave]);
+  }, [debouncedSave, saveGoals]);
 
   const updateKO = useCallback((id, field, val) => {
     setKoData(prev => {
       const updated = { ...prev[id], [field]: val };
       const next = { ...prev, [id]: updated };
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() =>
-        debouncedSave(id, "ko", {
-          goals_home: next[id]?.goals_home ?? null,
-          goals_away: next[id]?.goals_away ?? null,
-          joaquin: next[id]?.joaquin || "",
-          giada: next[id]?.giada || "",
-          home_team: next[id]?.home_team || "",
-          away_team: next[id]?.away_team || ""
-        }), 600);
+      const isGoal = field === "goals_home" || field === "goals_away";
+      saveTimer.current = setTimeout(() => {
+        if (isGoal) {
+          saveGoals(id, "ko", next[id].goals_home ?? null, next[id].goals_away ?? null,
+            { home_team: next[id]?.home_team || "", away_team: next[id]?.away_team || "" });
+        } else {
+          debouncedSave(id, "ko", {
+            joaquin: next[id].joaquin || "", giada: next[id].giada || "",
+            home_team: next[id]?.home_team || "", away_team: next[id]?.away_team || ""
+          });
+        }
+      }, 600);
       return next;
     });
-  }, [debouncedSave]);
+  }, [debouncedSave, saveGoals]);
 
   // Enrich GS matches with live data
   const gsMatches = INITIAL_GS.map(m => ({
