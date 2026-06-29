@@ -1,12 +1,12 @@
 const TEAM_MAP = {
-  "United States":"USA","United States of America":"USA","US":"USA","USMNT":"USA",
-  "Bosnia and Herzegovina":"Bosnia-Herz.","Bosnia & Herzegovina":"Bosnia-Herz.","Bosnia":"Bosnia-Herz.",
+  "United States":"USA","United States of America":"USA","US":"USA","USMNT":"USA","United States  ":"USA",
+  "Bosnia and Herzegovina":"Bosnia-Herz.","Bosnia & Herzegovina":"Bosnia-Herz.","Bosnia":"Bosnia-Herz.","Bosnia-Herzegovina":"Bosnia-Herz.",
   "Ivory Coast":"Ivory Coast","Côte d'Ivoire":"Ivory Coast","Cote d'Ivoire":"Ivory Coast","Cote D'Ivoire":"Ivory Coast",
   "Curaçao":"Curaçao","Curacao":"Curaçao",
-  "DR Congo":"DR Congo","Democratic Republic of Congo":"DR Congo","Congo DR":"DR Congo","Congo":"DR Congo",
-  "South Korea":"South Korea","Korea Republic":"South Korea","Republic of Korea":"South Korea","Korea":"South Korea",
+  "DR Congo":"DR Congo","Democratic Republic of Congo":"DR Congo","Congo DR":"DR Congo","Congo":"DR Congo","Congo (DR)":"DR Congo",
+  "South Korea":"South Korea","Korea Republic":"South Korea","Republic of Korea":"South Korea","Korea":"South Korea","Korea, South":"South Korea",
   "Saudi Arabia":"Saudi Arabia","KSA":"Saudi Arabia",
-  "Cape Verde":"Cape Verde","Cabo Verde":"Cape Verde",
+  "Cape Verde":"Cape Verde","Cabo Verde":"Cape Verde","Cape Verde Islands":"Cape Verde",
   "Czech Republic":"Czech Republic","Czechia":"Czech Republic",
   "Netherlands":"Netherlands","Holland":"Netherlands",
   "Turkey":"Turkey","Türkiye":"Turkey","Turkiye":"Turkey",
@@ -19,39 +19,35 @@ function normTeam(name) {
   return TEAM_MAP[trimmed] || trimmed;
 }
 
-function parseGames(raw) {
-  let data = raw;
-  // allorigins wraps response in {contents: "..."}
-  if (data && typeof data.contents === "string") {
-    try { data = JSON.parse(data.contents); } catch { /* keep as is */ }
-  }
-  const games = Array.isArray(data) ? data : (data.games || data.matches || data.data || data.response || []);
-  return games
-    .map(g => {
-      const home = normTeam(g.home_team?.name || g.home_team || g.home || g.homeTeam ||
-                            g.teams?.home?.name || g.strHomeTeam);
-      const away = normTeam(g.away_team?.name || g.away_team || g.away || g.awayTeam ||
-                            g.teams?.away?.name || g.strAwayTeam);
-      let gh = g.home_score ?? g.homeScore ?? g.score?.home ?? g.goals?.home ??
-               g.intHomeScore ?? g.scores?.home;
-      let ga = g.away_score ?? g.awayScore ?? g.score?.away ?? g.goals?.away ??
-               g.intAwayScore ?? g.scores?.away;
-      gh = (gh === "" || gh === null || gh === undefined) ? null : parseInt(gh);
-      ga = (ga === "" || ga === null || ga === undefined) ? null : parseInt(ga);
-      return { home, away, goalsHome: gh, goalsAway: ga };
-    })
-    .filter(g => g.home && g.away &&
-                 g.goalsHome !== null && !isNaN(g.goalsHome) &&
-                 g.goalsAway !== null && !isNaN(g.goalsAway));
-}
-
-const TARGET = "https://worldcup26.ir/get/games";
+// openfootball worldcup.json — public domain, no API key, no CORS issues
+// Served raw from GitHub. Updated ~daily by hand.
 const SOURCES = [
-  "https://api.allorigins.win/get?url=" + encodeURIComponent(TARGET),
-  "https://api.codetabs.com/v1/proxy/?quest=" + TARGET,
-  "https://thingproxy.freeboard.io/fetch/" + TARGET,
-  TARGET,
+  "https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json",
+  "https://cdn.jsdelivr.net/gh/openfootball/worldcup.json@master/2026/worldcup.json",
 ];
+
+function parseOpenfootball(data) {
+  const results = [];
+  const rounds = data.rounds || [];
+  rounds.forEach(round => {
+    (round.matches || []).forEach(m => {
+      // Only matches with a score
+      const sc = m.score;
+      let gh = null, ga = null;
+      if (sc && sc.ft && Array.isArray(sc.ft)) {
+        gh = sc.ft[0]; ga = sc.ft[1];
+      } else if (m.score1 !== undefined && m.score2 !== undefined) {
+        gh = m.score1; ga = m.score2;
+      }
+      if (gh === null || ga === null || gh === undefined || ga === undefined) return;
+      const home = normTeam(m.team1?.name || m.team1);
+      const away = normTeam(m.team2?.name || m.team2);
+      if (!home || !away) return;
+      results.push({ home, away, goalsHome: parseInt(gh), goalsAway: parseInt(ga) });
+    });
+  });
+  return results.filter(g => !isNaN(g.goalsHome) && !isNaN(g.goalsAway));
+}
 
 export async function fetchResults() {
   for (const url of SOURCES) {
@@ -59,7 +55,7 @@ export async function fetchResults() {
       const res = await fetch(url, { headers: { "Accept": "application/json" } });
       if (!res.ok) continue;
       const data = await res.json();
-      const parsed = parseGames(data);
+      const parsed = parseOpenfootball(data);
       if (parsed.length > 0) return parsed;
     } catch (e) {
       continue;
