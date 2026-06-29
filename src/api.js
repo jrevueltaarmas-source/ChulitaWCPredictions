@@ -1,5 +1,5 @@
 const TEAM_MAP = {
-  "United States":"USA","United States of America":"USA","US":"USA","USMNT":"USA","United States  ":"USA",
+  "United States":"USA","United States of America":"USA","US":"USA","USMNT":"USA",
   "Bosnia and Herzegovina":"Bosnia-Herz.","Bosnia & Herzegovina":"Bosnia-Herz.","Bosnia":"Bosnia-Herz.","Bosnia-Herzegovina":"Bosnia-Herz.",
   "Ivory Coast":"Ivory Coast","Côte d'Ivoire":"Ivory Coast","Cote d'Ivoire":"Ivory Coast","Cote D'Ivoire":"Ivory Coast",
   "Curaçao":"Curaçao","Curacao":"Curaçao",
@@ -20,31 +20,32 @@ function normTeam(name) {
 }
 
 // openfootball worldcup.json — public domain, no API key, no CORS issues
-// Served raw from GitHub. Updated ~daily by hand.
 const SOURCES = [
   "https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json",
   "https://cdn.jsdelivr.net/gh/openfootball/worldcup.json@master/2026/worldcup.json",
 ];
 
 function parseOpenfootball(data) {
+  // The matches can be either directly in data.matches OR nested in data.rounds[].matches
+  let allMatches = [];
+  if (Array.isArray(data.matches)) {
+    allMatches = data.matches;
+  } else if (Array.isArray(data.rounds)) {
+    data.rounds.forEach(r => { allMatches = allMatches.concat(r.matches || []); });
+  }
+
   const results = [];
-  const rounds = data.rounds || [];
-  rounds.forEach(round => {
-    (round.matches || []).forEach(m => {
-      // Only matches with a score
-      const sc = m.score;
-      let gh = null, ga = null;
-      if (sc && sc.ft && Array.isArray(sc.ft)) {
-        gh = sc.ft[0]; ga = sc.ft[1];
-      } else if (m.score1 !== undefined && m.score2 !== undefined) {
-        gh = m.score1; ga = m.score2;
-      }
-      if (gh === null || ga === null || gh === undefined || ga === undefined) return;
-      const home = normTeam(m.team1?.name || m.team1);
-      const away = normTeam(m.team2?.name || m.team2);
-      if (!home || !away) return;
-      results.push({ home, away, goalsHome: parseInt(gh), goalsAway: parseInt(ga) });
-    });
+  allMatches.forEach(m => {
+    const sc = m.score;
+    let gh = null, ga = null;
+    if (sc && Array.isArray(sc.ft)) {
+      gh = sc.ft[0]; ga = sc.ft[1];
+    }
+    if (gh === null || ga === null || gh === undefined || ga === undefined) return;
+    const home = normTeam(m.team1?.name || m.team1);
+    const away = normTeam(m.team2?.name || m.team2);
+    if (!home || !away) return;
+    results.push({ home, away, goalsHome: parseInt(gh), goalsAway: parseInt(ga) });
   });
   return results.filter(g => !isNaN(g.goalsHome) && !isNaN(g.goalsAway));
 }
