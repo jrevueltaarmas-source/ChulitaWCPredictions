@@ -2,6 +2,71 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./supabase.js";
 import { fetchResults } from "./api.js";
 
+// ─── Vintage American Sport theme ─────────────────────────────────────────────
+const T = {
+  navy:"#0E3A53", navyDark:"#0A2A3D", red:"#C8102E", redDark:"#A50D26",
+  green:"#006847", gold:"#F4B81E", cream:"#F2E8D5", card:"#FBF4E5",
+  ink:"#22201C", mute:"#9E927C", line:"#E2D2B2", lineSoft:"#EBDCC6",
+  jBlue:"#1B86A8", jBlueOn:"#1B86A8", gGold:"#C68A12",
+  boardBg:"#161412", boardEdge:"#463C2E",
+  jDigit:"#37C6F4", gDigit:"#FFC247",
+};
+const ROUND_COLORS = {
+  "ROUND OF 32":"#0E3A53","ROUND OF 16":"#0E3A53","QUARTER-FINALS":"#5B2C6F",
+  "SEMI-FINALS":"#C8102E","3rd PLACE":"#5D6D7E","FINAL ⚽":"#006847",
+};
+// Flag emoji per team
+const FLAGS = {
+  "Mexico":"🇲🇽","South Korea":"🇰🇷","South Africa":"🇿🇦","Czech Republic":"🇨🇿",
+  "Canada":"🇨🇦","Bosnia-Herz.":"🇧🇦","Qatar":"🇶🇦","Switzerland":"🇨🇭",
+  "Brazil":"🇧🇷","Morocco":"🇲🇦","Scotland":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","Haiti":"🇭🇹",
+  "USA":"🇺🇸","Paraguay":"🇵🇾","Australia":"🇦🇺","Turkey":"🇹🇷",
+  "Germany":"🇩🇪","Ecuador":"🇪🇨","Ivory Coast":"🇨🇮","Curaçao":"🇨🇼",
+  "Netherlands":"🇳🇱","Japan":"🇯🇵","Sweden":"🇸🇪","Tunisia":"🇹🇳",
+  "Belgium":"🇧🇪","Iran":"🇮🇷","Egypt":"🇪🇬","New Zealand":"🇳🇿",
+  "Spain":"🇪🇸","Uruguay":"🇺🇾","Saudi Arabia":"🇸🇦","Cape Verde":"🇨🇻",
+  "France":"🇫🇷","Senegal":"🇸🇳","Norway":"🇳🇴","Iraq":"🇮🇶",
+  "Argentina":"🇦🇷","Austria":"🇦🇹","Algeria":"🇩🇿","Jordan":"🇯🇴",
+  "Portugal":"🇵🇹","Colombia":"🇨🇴","Uzbekistan":"🇺🇿","DR Congo":"🇨🇩",
+  "England":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","Croatia":"🇭🇷","Ghana":"🇬🇭","Panama":"🇵🇦",
+};
+const flag = (t) => FLAGS[t] || "";
+
+// Inject Google Fonts once
+function useFonts() {
+  useEffect(() => {
+    if (document.getElementById("wc-fonts")) return;
+    const l = document.createElement("link");
+    l.id = "wc-fonts"; l.rel = "stylesheet";
+    l.href = "https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap";
+    document.head.appendChild(l);
+  }, []);
+}
+const FONT_DISPLAY = "'Anton',system-ui,sans-serif";
+const FONT_COND = "'Oswald',system-ui,sans-serif";
+const FONT_BODY = "'DM Sans',system-ui,sans-serif";
+
+// Parse "Sun 28 Jun" + "HH:MM" into a sortable number
+const MONTHS = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+function chronoKey(dateStr, timeStr) {
+  // dateStr like "Sun 28 Jun"; timeStr like "20:00" (Canaries)
+  let day=0, mon=5;
+  if (dateStr) {
+    const parts = dateStr.split(" ");
+    parts.forEach(p => {
+      if (/^\d+$/.test(p)) day = parseInt(p);
+      if (MONTHS[p] !== undefined) mon = MONTHS[p];
+    });
+  }
+  let h=0, mi=0;
+  if (timeStr && timeStr.includes(":")) { const [a,b]=timeStr.split(":"); h=parseInt(a)||0; mi=parseInt(b)||0; }
+  // Times after midnight (00:00–07:59) belong to the late-night slot of the listed date,
+  // so keep them after evening games by adding 24h.
+  const slot = h < 8 ? h + 24 : h;
+  return (mon*100 + day)*10000 + slot*100 + mi;
+}
+
+
 // ─── Data ─────────────────────────────────────────────────────────────────────
 const GROUP_TEAMS = {
   A:["Mexico","South Korea","South Africa","Czech Republic"],
@@ -30,11 +95,6 @@ const KO_LABELS = {
   P97:["W89","W90"], P98:["W93","W94"], P99:["W91","W92"], P100:["W95","W96"],
   P101:["W97","W98"], P102:["W99","W100"],
   P103:["L101","L102"], P104:["W101","W102"],
-};
-
-const ROUND_COLORS = {
-  "ROUND OF 32":"#2C3E50","ROUND OF 16":"#1A5276","QUARTER-FINALS":"#5B2C6F",
-  "SEMI-FINALS":"#D35400","3rd PLACE":"#5D6D7E","FINAL ⚽":"#922B21",
 };
 
 const INITIAL_GS = [{"id":"gs_6","date":"Thu 11 Jun","canaries":"20:00","romania":"22:00","group":"A","home":"Mexico","away":"South Africa","venue":"Mexico City"},{"id":"gs_7","date":"Thu 11 Jun","canaries":"22:00","romania":"00:00","group":"A","home":"South Korea","away":"Czech Republic","venue":"Guadalajara"},{"id":"gs_9","date":"Fri 12 Jun","canaries":"19:00","romania":"21:00","group":"B","home":"Canada","away":"Bosnia-Herz.","venue":"Toronto"},{"id":"gs_10","date":"Fri 12 Jun","canaries":"22:00","romania":"00:00","group":"D","home":"USA","away":"Paraguay","venue":"Los Angeles"},{"id":"gs_12","date":"Sat 13 Jun","canaries":"18:00","romania":"20:00","group":"B","home":"Qatar","away":"Switzerland","venue":"San Francisco"},{"id":"gs_13","date":"Sat 13 Jun","canaries":"21:00","romania":"23:00","group":"C","home":"Brazil","away":"Morocco","venue":"New Jersey"},{"id":"gs_15","date":"Sun 14 Jun","canaries":"00:00","romania":"02:00","group":"C","home":"Haiti","away":"Scotland","venue":"Boston"},{"id":"gs_16","date":"Sun 14 Jun","canaries":"03:00","romania":"05:00","group":"D","home":"Australia","away":"Turkey","venue":"Vancouver"},{"id":"gs_17","date":"Sun 14 Jun","canaries":"16:00","romania":"18:00","group":"E","home":"Germany","away":"Curaçao","venue":"Houston"},{"id":"gs_18","date":"Sun 14 Jun","canaries":"19:00","romania":"21:00","group":"F","home":"Netherlands","away":"Japan","venue":"Dallas"},{"id":"gs_19","date":"Sun 14 Jun","canaries":"22:00","romania":"00:00","group":"E","home":"Ivory Coast","away":"Ecuador","venue":"Philadelphia"},{"id":"gs_21","date":"Mon 15 Jun","canaries":"01:00","romania":"03:00","group":"F","home":"Sweden","away":"Tunisia","venue":"Monterrey"},{"id":"gs_22","date":"Mon 15 Jun","canaries":"15:00","romania":"17:00","group":"H","home":"Spain","away":"Cape Verde","venue":"Atlanta"},{"id":"gs_23","date":"Mon 15 Jun","canaries":"18:00","romania":"20:00","group":"G","home":"Belgium","away":"Egypt","venue":"Seattle"},{"id":"gs_24","date":"Mon 15 Jun","canaries":"21:00","romania":"23:00","group":"H","home":"Saudi Arabia","away":"Uruguay","venue":"Miami"},{"id":"gs_26","date":"Tue 16 Jun","canaries":"00:00","romania":"02:00","group":"G","home":"Iran","away":"New Zealand","venue":"Los Angeles"},{"id":"gs_27","date":"Tue 16 Jun","canaries":"18:00","romania":"20:00","group":"I","home":"France","away":"Senegal","venue":"New Jersey"},{"id":"gs_28","date":"Tue 16 Jun","canaries":"21:00","romania":"23:00","group":"I","home":"Iraq","away":"Norway","venue":"Boston"},{"id":"gs_30","date":"Wed 17 Jun","canaries":"00:00","romania":"02:00","group":"J","home":"Argentina","away":"Algeria","venue":"Kansas City"},{"id":"gs_31","date":"Wed 17 Jun","canaries":"03:00","romania":"05:00","group":"J","home":"Austria","away":"Jordan","venue":"San Francisco"},{"id":"gs_32","date":"Wed 17 Jun","canaries":"16:00","romania":"18:00","group":"K","home":"Portugal","away":"DR Congo","venue":"Houston"},{"id":"gs_33","date":"Wed 17 Jun","canaries":"19:00","romania":"21:00","group":"L","home":"England","away":"Croatia","venue":"Dallas"},{"id":"gs_34","date":"Wed 17 Jun","canaries":"22:00","romania":"00:00","group":"L","home":"Ghana","away":"Panama","venue":"Toronto"},{"id":"gs_36","date":"Thu 18 Jun","canaries":"01:00","romania":"03:00","group":"K","home":"Uzbekistan","away":"Colombia","venue":"Mexico City"},{"id":"gs_37","date":"Thu 18 Jun","canaries":"15:00","romania":"17:00","group":"A","home":"Czech Republic","away":"South Africa","venue":"Atlanta"},{"id":"gs_38","date":"Thu 18 Jun","canaries":"18:00","romania":"20:00","group":"B","home":"Switzerland","away":"Bosnia-Herz.","venue":"Los Angeles"},{"id":"gs_39","date":"Thu 18 Jun","canaries":"21:00","romania":"23:00","group":"B","home":"Canada","away":"Qatar","venue":"Vancouver"},{"id":"gs_41","date":"Fri 19 Jun","canaries":"00:00","romania":"02:00","group":"A","home":"Mexico","away":"South Korea","venue":"Guadalajara"},{"id":"gs_42","date":"Fri 19 Jun","canaries":"18:00","romania":"20:00","group":"D","home":"USA","away":"Australia","venue":"Seattle"},{"id":"gs_43","date":"Fri 19 Jun","canaries":"21:00","romania":"23:00","group":"C","home":"Scotland","away":"Morocco","venue":"Boston"},{"id":"gs_45","date":"Sat 20 Jun","canaries":"23:30","romania":"01:30","group":"C","home":"Brazil","away":"Haiti","venue":"Philadelphia"},{"id":"gs_46","date":"Sat 20 Jun","canaries":"02:00","romania":"04:00","group":"D","home":"Turkey","away":"Paraguay","venue":"San Francisco"},{"id":"gs_47","date":"Sat 20 Jun","canaries":"16:00","romania":"18:00","group":"F","home":"Netherlands","away":"Sweden","venue":"Houston"},{"id":"gs_48","date":"Sat 20 Jun","canaries":"19:00","romania":"21:00","group":"E","home":"Germany","away":"Ivory Coast","venue":"Toronto"},{"id":"gs_50","date":"Sun 21 Jun","canaries":"23:00","romania":"01:00","group":"E","home":"Ecuador","away":"Curaçao","venue":"Kansas City"},{"id":"gs_51","date":"Sun 21 Jun","canaries":"03:00","romania":"05:00","group":"F","home":"Tunisia","away":"Japan","venue":"Monterrey"},{"id":"gs_52","date":"Sun 21 Jun","canaries":"15:00","romania":"17:00","group":"H","home":"Spain","away":"Saudi Arabia","venue":"Atlanta"},{"id":"gs_53","date":"Sun 21 Jun","canaries":"18:00","romania":"20:00","group":"G","home":"Belgium","away":"Iran","venue":"Los Angeles"},{"id":"gs_54","date":"Sun 21 Jun","canaries":"21:00","romania":"23:00","group":"H","home":"Uruguay","away":"Cape Verde","venue":"Miami"},{"id":"gs_56","date":"Mon 22 Jun","canaries":"00:00","romania":"02:00","group":"G","home":"New Zealand","away":"Egypt","venue":"Vancouver"},{"id":"gs_57","date":"Mon 22 Jun","canaries":"16:00","romania":"18:00","group":"J","home":"Argentina","away":"Austria","venue":"Dallas"},{"id":"gs_58","date":"Mon 22 Jun","canaries":"20:00","romania":"22:00","group":"I","home":"France","away":"Iraq","venue":"Philadelphia"},{"id":"gs_60","date":"Tue 23 Jun","canaries":"23:00","romania":"01:00","group":"I","home":"Norway","away":"Senegal","venue":"New Jersey"},{"id":"gs_61","date":"Tue 23 Jun","canaries":"02:00","romania":"04:00","group":"J","home":"Jordan","away":"Algeria","venue":"San Francisco"},{"id":"gs_62","date":"Tue 23 Jun","canaries":"16:00","romania":"18:00","group":"K","home":"Portugal","away":"Uzbekistan","venue":"Houston"},{"id":"gs_63","date":"Tue 23 Jun","canaries":"19:00","romania":"21:00","group":"L","home":"England","away":"Ghana","venue":"Boston"},{"id":"gs_64","date":"Tue 23 Jun","canaries":"22:00","romania":"00:00","group":"L","home":"Panama","away":"Croatia","venue":"Toronto"},{"id":"gs_66","date":"Wed 24 Jun","canaries":"01:00","romania":"03:00","group":"K","home":"Colombia","away":"DR Congo","venue":"Guadalajara"},{"id":"gs_67","date":"Wed 24 Jun","canaries":"18:00","romania":"20:00","group":"B","home":"Switzerland","away":"Canada","venue":"Vancouver"},{"id":"gs_68","date":"Wed 24 Jun","canaries":"18:00","romania":"20:00","group":"B","home":"Bosnia-Herz.","away":"Qatar","venue":"Seattle"},{"id":"gs_69","date":"Wed 24 Jun","canaries":"21:00","romania":"23:00","group":"C","home":"Scotland","away":"Brazil","venue":"Miami"},{"id":"gs_70","date":"Wed 24 Jun","canaries":"21:00","romania":"23:00","group":"C","home":"Morocco","away":"Haiti","venue":"Atlanta"},{"id":"gs_72","date":"Thu 25 Jun","canaries":"00:00","romania":"02:00","group":"A","home":"Czech Republic","away":"Mexico","venue":"Mexico City"},{"id":"gs_73","date":"Thu 25 Jun","canaries":"00:00","romania":"02:00","group":"A","home":"South Africa","away":"South Korea","venue":"Guadalajara"},{"id":"gs_74","date":"Thu 25 Jun","canaries":"19:00","romania":"21:00","group":"E","home":"Curaçao","away":"Ivory Coast","venue":"Philadelphia"},{"id":"gs_75","date":"Thu 25 Jun","canaries":"19:00","romania":"21:00","group":"E","home":"Ecuador","away":"Germany","venue":"New Jersey"},{"id":"gs_76","date":"Thu 25 Jun","canaries":"22:00","romania":"00:00","group":"F","home":"Japan","away":"Sweden","venue":"Dallas"},{"id":"gs_77","date":"Thu 25 Jun","canaries":"22:00","romania":"00:00","group":"F","home":"Tunisia","away":"Netherlands","venue":"Kansas City"},{"id":"gs_79","date":"Fri 26 Jun","canaries":"01:00","romania":"03:00","group":"D","home":"Turkey","away":"USA","venue":"Los Angeles"},{"id":"gs_80","date":"Fri 26 Jun","canaries":"01:00","romania":"03:00","group":"D","home":"Paraguay","away":"Australia","venue":"San Francisco"},{"id":"gs_81","date":"Fri 26 Jun","canaries":"18:00","romania":"20:00","group":"I","home":"Norway","away":"France","venue":"Boston"},{"id":"gs_82","date":"Fri 26 Jun","canaries":"18:00","romania":"20:00","group":"I","home":"Senegal","away":"Iraq","venue":"Toronto"},{"id":"gs_83","date":"Fri 26 Jun","canaries":"23:00","romania":"01:00","group":"H","home":"Cape Verde","away":"Saudi Arabia","venue":"Houston"},{"id":"gs_84","date":"Fri 26 Jun","canaries":"23:00","romania":"01:00","group":"H","home":"Uruguay","away":"Spain","venue":"Guadalajara"},{"id":"gs_86","date":"Sat 27 Jun","canaries":"02:00","romania":"04:00","group":"G","home":"Egypt","away":"Iran","venue":"Seattle"},{"id":"gs_87","date":"Sat 27 Jun","canaries":"02:00","romania":"04:00","group":"G","home":"New Zealand","away":"Belgium","venue":"Vancouver"},{"id":"gs_88","date":"Sat 27 Jun","canaries":"20:00","romania":"22:00","group":"L","home":"Panama","away":"England","venue":"New Jersey"},{"id":"gs_89","date":"Sat 27 Jun","canaries":"20:00","romania":"22:00","group":"L","home":"Croatia","away":"Ghana","venue":"Philadelphia"},{"id":"gs_90","date":"Sat 27 Jun","canaries":"22:30","romania":"00:30","group":"K","home":"Colombia","away":"Portugal","venue":"Miami"},{"id":"gs_91","date":"Sat 27 Jun","canaries":"22:30","romania":"00:30","group":"K","home":"DR Congo","away":"Uzbekistan","venue":"Atlanta"},{"id":"gs_93","date":"Sun 28 Jun","canaries":"01:00","romania":"03:00","group":"J","home":"Algeria","away":"Austria","venue":"Kansas City"},{"id":"gs_94","date":"Sun 28 Jun","canaries":"01:00","romania":"03:00","group":"J","home":"Jordan","away":"Argentina","venue":"Dallas"}];
@@ -127,6 +187,7 @@ async function upsertMatch(match) {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
+  useFonts();
   const [tab, setTab] = useState("groups");
   const [gsData, setGsData] = useState({});   // id → {goals_home, goals_away, joaquin, giada}
   const [koData, setKoData] = useState({});
@@ -428,66 +489,99 @@ export default function App() {
 
   if (loading) return (
     <div style={{display:"flex",justifyContent:"center",alignItems:"center",
-      height:"100vh",fontFamily:"system-ui",fontSize:18,color:"#888"}}>
-      ⚽ Loading...
+      height:"100vh",fontFamily:FONT_COND,fontSize:18,color:T.mute,background:T.cream}}>
+      ⚽ Cargando…
     </div>
   );
 
   return (
-    <div style={{fontFamily:"'Segoe UI',system-ui,sans-serif",maxWidth:900,
-      margin:"0 auto",background:"#fff",minHeight:"100vh"}}>
+    <div style={{fontFamily:FONT_BODY,maxWidth:760,
+      margin:"0 auto",background:T.cream,minHeight:"100vh"}}>
 
-      {/* Header */}
-      <div style={{background:"linear-gradient(135deg,#922B21,#C0392B)",
-        padding:"14px 16px",color:"#fff"}}>
-        <div style={{display:"flex",justifyContent:"space-between",
-          alignItems:"center",flexWrap:"wrap",gap:8}}>
-          <div>
-            <div style={{fontSize:17,fontWeight:800,letterSpacing:0.3}}>
-              ⚽ FIFA WORLD CUP 2026
+      {/* Header — vintage pennant */}
+      <div style={{background:T.navy,padding:"20px 18px 22px",color:T.cream,
+        position:"relative",overflow:"hidden",borderBottom:`5px solid ${T.red}`}}>
+        {/* tricolor top stripe (host nations) */}
+        <div style={{position:"absolute",top:0,left:0,right:0,height:6,
+          background:`linear-gradient(90deg,${T.green} 0 33.3%,#FFFFFF 33.3% 66.6%,${T.red} 66.6% 100%)`}}/>
+        <div style={{position:"relative",zIndex:1}}>
+          <div style={{fontFamily:FONT_DISPLAY,fontSize:30,letterSpacing:0.5,
+            lineHeight:0.95,textTransform:"uppercase",marginTop:4}}>
+            World Cup <span style={{color:T.gold}}>2026</span>
+          </div>
+          <div style={{fontFamily:FONT_COND,fontSize:11,opacity:0.85,marginTop:3,
+            letterSpacing:2,textTransform:"uppercase"}}>
+            Joaquín · vs · Giada
+          </div>
+          <div style={{fontSize:13,letterSpacing:3,marginTop:2}}>🇲🇽 🇺🇸 🇨🇦</div>
+        </div>
+
+        {/* Stadium scoreboard */}
+        <div style={{marginTop:16,background:T.boardBg,borderRadius:8,
+          border:`3px solid ${T.boardEdge}`,padding:"12px 14px",
+          boxShadow:`inset 0 0 0 2px #2A2620, 0 4px 0 ${T.navyDark}`,
+          display:"flex",alignItems:"center",justifyContent:"space-between",
+          gap:12,position:"relative",zIndex:1}}>
+          <div style={{flex:1,textAlign:"center"}}>
+            <div style={{fontFamily:FONT_COND,fontSize:12,fontWeight:600,
+              letterSpacing:2,textTransform:"uppercase",color:T.jDigit,marginBottom:3}}>
+              ▪ Joaquín
             </div>
-            <div style={{fontSize:11,opacity:0.8,marginTop:1}}>
-              Joaquín 🔵 vs Giada 🔴 · Predictions Tracker
+            <div style={{fontFamily:FONT_DISPLAY,fontSize:42,lineHeight:0.8,
+              letterSpacing:2,color:T.jDigit,textShadow:"0 0 10px rgba(55,198,244,0.5)"}}>
+              {total.j}
             </div>
           </div>
-          <div style={{display:"flex",gap:10,alignItems:"center"}}>
-            <ScoreBox label="🔵 Joaquín" value={total.j} color="#1A5276"/>
-            <div style={{color:"rgba(255,255,255,0.5)",fontSize:16}}>vs</div>
-            <ScoreBox label="🔴 Giada" value={total.g} color="#922B21"/>
+          <div style={{fontFamily:FONT_DISPLAY,fontSize:16,color:"#6B6256",
+            letterSpacing:1,borderLeft:"2px dashed #3A352C",borderRight:"2px dashed #3A352C",
+            padding:"0 14px"}}>VS</div>
+          <div style={{flex:1,textAlign:"center"}}>
+            <div style={{fontFamily:FONT_COND,fontSize:12,fontWeight:600,
+              letterSpacing:2,textTransform:"uppercase",color:T.gDigit,marginBottom:3}}>
+              ▪ Giada
+            </div>
+            <div style={{fontFamily:FONT_DISPLAY,fontSize:42,lineHeight:0.8,
+              letterSpacing:2,color:T.gDigit,textShadow:"0 0 10px rgba(255,194,71,0.5)"}}>
+              {total.g}
+            </div>
           </div>
         </div>
-        <div style={{marginTop:6,fontSize:10,opacity:0.65}}>
-          Groups · J {gsScore.j} G {gsScore.g} &nbsp;|&nbsp;
-          Knockout · J {koScore.j} G {koScore.g}
+        <div style={{fontFamily:FONT_COND,fontSize:10,opacity:0.75,marginTop:9,
+          textAlign:"center",letterSpacing:1.5,textTransform:"uppercase",
+          position:"relative",zIndex:1}}>
+          Grupos J{gsScore.j}–G{gsScore.g} · Eliminatorias J{koScore.j}–G{koScore.g}
         </div>
       </div>
 
       {/* Toolbar */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-        padding:"0 12px",borderBottom:"1px solid #E0E0E0",background:"#F8F9FA"}}>
+        padding:"0 8px",borderBottom:`3px solid ${T.navy}`,background:T.card,
+        position:"sticky",top:0,zIndex:5}}>
         <div style={{display:"flex"}}>
-          {[["groups","Groups"],["standings","Standings"],["knockout","Knockout"]].map(([k,l])=>(
+          {[["groups","Grupos"],["standings","Clasificación"],["knockout","Eliminatorias"]].map(([k,l])=>(
             <button key={k} onClick={()=>setTab(k)}
-              style={{padding:"10px 14px",border:"none",cursor:"pointer",fontWeight:600,
-                fontSize:13,background:"none",
-                borderBottom:tab===k?"3px solid #C0392B":"3px solid transparent",
-                color:tab===k?"#C0392B":"#555",transition:"all 0.15s"}}>
+              style={{padding:"12px 13px",border:"none",cursor:"pointer",
+                fontFamily:FONT_COND,fontWeight:600,fontSize:13,background:"none",
+                textTransform:"uppercase",letterSpacing:0.5,
+                borderBottom:tab===k?`4px solid ${T.gold}`:"4px solid transparent",
+                color:tab===k?T.red:T.mute,transition:"all 0.15s"}}>
               {l}
             </button>
           ))}
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          {saving && <span style={{fontSize:11,color:"#888"}}>Saving…</span>}
-          {saved && <span style={{fontSize:11,color:"#1E8449",fontWeight:600}}>✓ Saved</span>}
-          {lastSync && <span style={{fontSize:10,color:"#aaa"}}>
+          {saving && <span style={{fontSize:11,color:T.mute}}>Guardando…</span>}
+          {saved && <span style={{fontSize:11,color:T.green,fontWeight:600}}>✓</span>}
+          {lastSync && <span style={{fontSize:10,color:T.mute}}>
             🔄 {lastSync.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}
           </span>}
           <button onClick={()=>setEditMode(!editMode)}
-            style={{padding:"5px 12px",borderRadius:6,fontSize:12,fontWeight:600,
-              cursor:"pointer",border:`1px solid ${editMode?"#C0392B":"#ccc"}`,
-              background:editMode?"#C0392B":"#fff",color:editMode?"#fff":"#333",
+            style={{padding:"5px 12px",borderRadius:6,fontSize:12,fontWeight:700,
+              fontFamily:FONT_COND,letterSpacing:0.5,cursor:"pointer",
+              border:`2px solid ${editMode?T.red:T.line}`,
+              background:editMode?T.red:T.card,color:editMode?"#fff":T.ink,
               transition:"all 0.15s"}}>
-            {editMode?"✓ Done":"✏️ Edit"}
+            {editMode?"✓ Listo":"✏️ Editar"}
           </button>
         </div>
       </div>
@@ -504,16 +598,6 @@ export default function App() {
   );
 }
 
-function ScoreBox({label, value, color}) {
-  return (
-    <div style={{textAlign:"center",background:"rgba(255,255,255,0.15)",
-      padding:"5px 12px",borderRadius:8}}>
-      <div style={{fontSize:20,fontWeight:900}}>{value}</div>
-      <div style={{fontSize:9,opacity:0.85}}>{label}</div>
-    </div>
-  );
-}
-
 // ─── Groups Tab ───────────────────────────────────────────────────────────────
 function GroupsTab({matches, onUpdate, editMode}) {
   const byDate = {};
@@ -525,15 +609,27 @@ function GroupsTab({matches, onUpdate, editMode}) {
     <div>
       <Legend isKO={false}/>
       {Object.entries(byDate).map(([date,ms])=>(
-        <div key={date} style={{marginBottom:14}}>
-          <div style={{background:"#2C3E50",color:"#fff",padding:"4px 10px",
-            borderRadius:5,fontSize:12,fontWeight:700,marginBottom:5}}>
-            {date}
-          </div>
+        <div key={date} style={{marginBottom:16}}>
+          <DateBar label={date}/>
           {ms.map(m=><MatchRow key={m.id} m={m} onUpdate={onUpdate}
             editMode={editMode} isKO={false}/>)}
         </div>
       ))}
+    </div>
+  );
+}
+
+// Shared date divider — vintage ticket style
+function DateBar({label, small}) {
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:8,
+      margin: small ? "10px 2px 8px" : "4px 2px 10px"}}>
+      <div style={{fontFamily:FONT_COND,fontSize: small?12:13,color:T.navy,
+        letterSpacing:1,background:T.card,border:`2px solid ${T.navy}`,
+        padding:"3px 12px",borderRadius:4,textTransform:"uppercase",fontWeight:600}}>
+        {label}
+      </div>
+      <div style={{flex:1,height:2,background:T.lineSoft}}/>
     </div>
   );
 }
@@ -558,30 +654,32 @@ function StandingsTab({standings}) {
 
 function GroupTable({group,teams}) {
   return (
-    <div style={{borderRadius:7,overflow:"hidden",border:"1px solid #D5D8DC"}}>
-      <div style={{background:"#1A5276",color:"#fff",padding:"5px 9px",
-        fontWeight:700,fontSize:12}}>GROUP {group}</div>
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+    <div style={{borderRadius:8,overflow:"hidden",border:`2px solid ${T.line}`,
+      boxShadow:`0 2px 0 ${T.lineSoft}`}}>
+      <div style={{background:T.navy,color:T.cream,padding:"6px 10px",
+        fontFamily:FONT_DISPLAY,fontSize:14,letterSpacing:0.5,
+        textTransform:"uppercase"}}>Grupo {group}</div>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,background:T.card}}>
         <thead>
-          <tr style={{background:"#1C1C1C",color:"#fff"}}>
-            {["Team","P","W","D","L","GF","GA","GD","Pts"].map(h=>(
-              <th key={h} style={{padding:"4px 5px",textAlign:h==="Team"?"left":"center",
-                fontWeight:600,fontSize:10}}>{h}</th>
+          <tr style={{background:T.ink,color:T.cream}}>
+            {["Equipo","PJ","G","E","P","GF","GC","DG","Pts"].map(h=>(
+              <th key={h} style={{padding:"4px 5px",textAlign:h==="Equipo"?"left":"center",
+                fontFamily:FONT_COND,fontWeight:600,fontSize:10,letterSpacing:0.3}}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {teams.map(([name,s],i)=>(
-            <tr key={name} style={{background:i<2?"#D5F5E3":i%2===0?"#F2F3F4":"#fff",
-              borderTop:"1px solid #E0E0E0"}}>
-              <td style={{padding:"4px 5px",fontWeight:i<2?700:400,
-                color:i<2?"#1E8449":"#1C1C1C",fontSize:11}}>
-                {i===0?"🥇":i===1?"🥈":i===2?"🥉":"  "} {name}
+            <tr key={name} style={{background:i<2?"#E3F1E6":i%2===0?"#F6EEDC":T.card,
+              borderTop:`1px solid ${T.lineSoft}`}}>
+              <td style={{padding:"5px 5px",fontWeight:i<2?700:500,
+                color:i<2?T.green:T.ink,fontSize:11,whiteSpace:"nowrap"}}>
+                {i===0?"①":i===1?"②":i===2?"③":"④"} {flag(name)} {name}
               </td>
               {[s.P,s.W,s.D,s.L,s.GF,s.GA,s.GD,s.Pts].map((v,j)=>(
-                <td key={j} style={{padding:"4px 5px",textAlign:"center",
+                <td key={j} style={{padding:"5px 5px",textAlign:"center",
                   fontWeight:j===7?800:400,
-                  color:j===7?"#1E8449":j===6&&v>0?"#C0392B":"#1C1C1C"}}>
+                  color:j===7?T.green:j===6&&v>0?T.red:T.ink}}>
                   {j===6&&v>0?"+"+v:v}
                 </td>
               ))}
@@ -594,6 +692,11 @@ function GroupTable({group,teams}) {
 }
 
 // ─── Knockout Tab ─────────────────────────────────────────────────────────────
+const ROUND_ES = {
+  "ROUND OF 32":"DIECISEISAVOS","ROUND OF 16":"OCTAVOS",
+  "QUARTER-FINALS":"CUARTOS","SEMI-FINALS":"SEMIFINALES",
+  "3rd PLACE":"3ER PUESTO","FINAL ⚽":"FINAL",
+};
 function KnockoutTab({matches, onUpdate, editMode}) {
   const byRound={};
   matches.forEach(m=>{
@@ -603,29 +706,27 @@ function KnockoutTab({matches, onUpdate, editMode}) {
   return (
     <div>
       <Legend isKO={true}/>
-      <div style={{fontSize:11,color:"#888",marginBottom:10}}>
-        Teams resolve automatically from standings · "Best 3rd" slots filled manually after group stage
-      </div>
       {Object.entries(byRound).map(([round,ms])=>{
-        // Group matches by date within this round
+        // Sort all matches in this round chronologically, then group by date
+        const sorted = [...ms].sort((a,b) =>
+          chronoKey(a.date,a.canaries) - chronoKey(b.date,b.canaries));
         const byDate = {};
-        ms.forEach(m => {
-          const d = m.date || "TBD";
+        sorted.forEach(m => {
+          const d = m.date || "Por definir";
           if(!byDate[d]) byDate[d]=[];
           byDate[d].push(m);
         });
         return (
-        <div key={round} style={{marginBottom:14}}>
-          <div style={{background:ROUND_COLORS[round]||"#555",color:"#fff",
-            padding:"5px 10px",borderRadius:5,fontSize:12,fontWeight:700,marginBottom:5}}>
-            {round}
+        <div key={round} style={{marginBottom:18}}>
+          <div style={{background:ROUND_COLORS[round]||T.navy,color:T.cream,
+            padding:"7px 12px",borderRadius:6,fontFamily:FONT_DISPLAY,fontSize:16,
+            letterSpacing:0.5,marginBottom:8,textTransform:"uppercase",
+            boxShadow:`0 3px 0 rgba(0,0,0,0.12)`}}>
+            {ROUND_ES[round]||round}
           </div>
           {Object.entries(byDate).map(([date,dms])=>(
-            <div key={date} style={{marginBottom:8}}>
-              <div style={{background:"#2C3E50",color:"#fff",padding:"3px 10px",
-                borderRadius:4,fontSize:11,fontWeight:600,marginBottom:4,marginLeft:2}}>
-                {date}
-              </div>
+            <div key={date} style={{marginBottom:6}}>
+              <DateBar label={date} small/>
               {dms.map(m=><MatchRow key={m.id} m={m} onUpdate={onUpdate}
                 editMode={editMode} isKO={true}/>)}
             </div>
@@ -640,11 +741,12 @@ function KnockoutTab({matches, onUpdate, editMode}) {
 // ─── Legend ───────────────────────────────────────────────────────────────────
 function Legend({isKO}) {
   return (
-    <div style={{fontSize:10,color:"#888",marginBottom:10,padding:"6px 10px",
-      background:"#F8F9FA",borderRadius:6,border:"1px solid #E0E0E0"}}>
+    <div style={{fontSize:10.5,color:T.mute,marginBottom:10,padding:"7px 11px",
+      background:T.card,borderRadius:6,border:`1.5px solid ${T.line}`,
+      fontFamily:FONT_COND,letterSpacing:0.3}}>
       {isKO
-        ? "Prediction: 1 = Home advances · 2 = Away advances · Result shown after extra time; penalties decide ties · ✅ correct ❌ wrong"
-        : "Prediction: 1 = Home win · X = Draw · 2 = Away win · Enter goals to auto-calculate result · ✅ correct ❌ wrong"}
+        ? "Pronóstico: 1 = pasa el local · 2 = pasa el visitante · Resultado tras prórroga; los penaltis deciden · ✅ acierto ❌ fallo"
+        : "Pronóstico: 1 = gana local · X = empate · 2 = gana visitante · Mete los goles y el resultado se calcula solo · ✅ acierto ❌ fallo"}
     </div>
   );
 }
@@ -652,7 +754,6 @@ function Legend({isKO}) {
 // ─── Match Row ────────────────────────────────────────────────────────────────
 function MatchRow({m, onUpdate, editMode, isKO}) {
   const gh = m.goals_home, ga = m.goals_away;
-  // In knockouts, the "result" (who advances) considers penalties; in groups it's 1/X/2.
   const res = isKO ? getKOResult(gh, ga, m.pens_home, m.pens_away) : getResult(gh, ga);
   const played = gh !== null && gh !== undefined && ga !== null && ga !== undefined;
   const hasPens = m.pens_home !== null && m.pens_home !== undefined &&
@@ -664,52 +765,59 @@ function MatchRow({m, onUpdate, editMode, isKO}) {
   const awayTeam = isKO ? (m.awayTeam || m.awayLabel) : m.away;
   const isTBD_home = isKO && !m.homeTeam;
   const isTBD_away = isKO && !m.awayTeam;
-  const badge = isKO ? m.id : `G${m.group}`;
-  const badgeColor = isKO ? (ROUND_COLORS[m.round]||"#555") : "#F39C12";
 
   return (
-    <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",
-      background:played?"#fff":"#F9F9F9",borderRadius:6,marginBottom:3,
-      border:`1px solid ${played?"#D5D8DC":"#EAECEE"}`,flexWrap:"wrap"}}>
+    <div style={{display:"flex",alignItems:"center",gap:7,padding:"9px 11px",
+      background:T.card,borderRadius:9,marginBottom:7,
+      border:`2px solid ${T.line}`,
+      borderLeft: played ? `5px solid ${T.green}` : `2px solid ${T.line}`,
+      boxShadow:`0 2px 0 ${T.lineSoft}`,flexWrap:"wrap"}}>
 
-      {/* Badge + times */}
-      <div style={{display:"flex",flexDirection:"column",gap:1,minWidth:58}}>
-        <span style={{background:badgeColor,color:"#fff",padding:"1px 6px",
-          borderRadius:9,fontSize:9,fontWeight:700,textAlign:"center"}}>
-          {badge}
-        </span>
-        <span style={{fontSize:8,color:"#aaa",textAlign:"center"}}>
-          🌴{m.canaries}
-        </span>
-        <span style={{fontSize:8,color:"#aaa",textAlign:"center"}}>
-          🇷🇴{m.romania}
+      {/* Left: group badge (groups only) + times */}
+      <div style={{display:"flex",flexDirection:"column",gap:1,minWidth:50,alignItems:"center"}}>
+        {!isKO && (
+          <span style={{background:T.red,color:T.cream,padding:"2px 7px",
+            borderRadius:5,fontFamily:FONT_DISPLAY,fontSize:12,letterSpacing:0.3}}>
+            {m.group}
+          </span>
+        )}
+        <span style={{fontFamily:FONT_COND,fontSize:9.5,color:T.mute,
+          textAlign:"center",marginTop:isKO?0:1}}>🌴 {m.canaries}</span>
+        <span style={{fontFamily:FONT_COND,fontSize:9.5,color:T.mute,textAlign:"center"}}>
+          🇷🇴 {m.romania}
         </span>
       </div>
 
       {/* Home team */}
-      <span style={{fontWeight:700,fontSize:12,textAlign:"right",flex:1,
-        color:isTBD_home?"#bbb":played&&res==="1"?"#1A5276":"#1C1C1C",
-        fontStyle:isTBD_home?"italic":"normal",minWidth:80}}>
-        {homeTeam}
-      </span>
+      <div style={{flex:1,minWidth:84,display:"flex",alignItems:"center",
+        justifyContent:"flex-end",gap:6,textAlign:"right"}}>
+        <span style={{fontWeight:700,fontSize:13,
+          color:isTBD_home?"#BBB1A0":played&&res==="1"?T.green:T.ink,
+          fontStyle:isTBD_home?"italic":"normal",
+          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+          {homeTeam}
+        </span>
+        {!isTBD_home && <span style={{fontSize:18,lineHeight:1}}>{flag(homeTeam)}</span>}
+      </div>
 
       {/* Score / goals */}
       {editMode ? (
         <div style={{display:"flex",alignItems:"center",gap:3,flexShrink:0}}>
           <GoalInput val={gh} onChange={v=>onUpdate(m.id,"goals_home",v)}/>
-          <span style={{color:"#ccc",fontSize:11}}>–</span>
+          <span style={{color:T.mute,fontSize:11}}>–</span>
           <GoalInput val={ga} onChange={v=>onUpdate(m.id,"goals_away",v)}/>
         </div>
       ) : (
-        <div style={{minWidth:46,display:"flex",flexDirection:"column",
+        <div style={{minWidth:50,display:"flex",flexDirection:"column",
           alignItems:"center",flexShrink:0}}>
-          <div style={{fontWeight:800,fontSize:13,color:"#1C1C1C"}}>
-            {played ? `${gh} – ${ga}` : <span style={{color:"#ccc",fontSize:11}}>vs</span>}
+          <div style={{fontFamily:FONT_DISPLAY,fontSize:19,color:T.ink,letterSpacing:1}}>
+            {played ? `${gh}–${ga}` : <span style={{color:"#CFC4AE",fontSize:12,
+              fontFamily:FONT_COND}}>vs</span>}
           </div>
           {hasPens && (
-            <div style={{fontSize:9,fontWeight:700,color:"#D35400",
-              background:"#FEF5E7",borderRadius:3,padding:"0 4px",marginTop:1,
-              whiteSpace:"nowrap"}}>
+            <div style={{fontFamily:FONT_COND,fontSize:9,fontWeight:600,color:T.red,
+              background:"#F7E0E0",borderRadius:3,padding:"0 5px",marginTop:1,
+              whiteSpace:"nowrap",letterSpacing:0.3}}>
               pen {m.pens_home}-{m.pens_away}
             </div>
           )}
@@ -717,31 +825,33 @@ function MatchRow({m, onUpdate, editMode, isKO}) {
       )}
 
       {/* Away team */}
-      <span style={{fontWeight:700,fontSize:12,flex:1,
-        color:isTBD_away?"#bbb":played&&res==="2"?"#C0392B":"#1C1C1C",
-        fontStyle:isTBD_away?"italic":"normal",minWidth:80}}>
-        {awayTeam}
-      </span>
+      <div style={{flex:1,minWidth:84,display:"flex",alignItems:"center",gap:6}}>
+        {!isTBD_away && <span style={{fontSize:18,lineHeight:1}}>{flag(awayTeam)}</span>}
+        <span style={{fontWeight:700,fontSize:13,
+          color:isTBD_away?"#BBB1A0":played&&res==="2"?T.green:T.ink,
+          fontStyle:isTBD_away?"italic":"normal",
+          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+          {awayTeam}
+        </span>
+      </div>
 
       {/* Predictions */}
-      <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+      <div style={{display:"flex",gap:7,alignItems:"center",flexShrink:0}}>
         <div style={{display:"flex",flexDirection:"column",gap:2,alignItems:"center"}}>
-          <span style={{fontSize:8,color:"#1A5276",fontWeight:700}}>J</span>
+          <span style={{fontFamily:FONT_COND,fontSize:9,color:T.jBlue,fontWeight:700}}>J</span>
           <div style={{display:"flex",gap:2}}>
             {preds.map(v=>(
               <PredBtn key={v} val={v} current={m.joaquin}
-                onChange={val=>onUpdate(m.id,"joaquin",val)}
-                disabled={!editMode}/>
+                onChange={val=>onUpdate(m.id,"joaquin",val)} disabled={!editMode}/>
             ))}
           </div>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:2,alignItems:"center"}}>
-          <span style={{fontSize:8,color:"#C0392B",fontWeight:700}}>G</span>
+          <span style={{fontFamily:FONT_COND,fontSize:9,color:T.gGold,fontWeight:700}}>G</span>
           <div style={{display:"flex",gap:2}}>
             {preds.map(v=>(
               <PredBtn key={v} val={v} current={m.giada}
-                onChange={val=>onUpdate(m.id,"giada",val)}
-                disabled={!editMode}/>
+                onChange={val=>onUpdate(m.id,"giada",val)} disabled={!editMode}/>
             ))}
           </div>
         </div>
@@ -749,7 +859,7 @@ function MatchRow({m, onUpdate, editMode, isKO}) {
 
       {/* Result indicators */}
       <div style={{display:"flex",flexDirection:"column",gap:2,
-        alignItems:"center",minWidth:22}}>
+        alignItems:"center",minWidth:20}}>
         {res && <>
           <span style={{fontSize:13}}>{jOk?"✅":"❌"}</span>
           <span style={{fontSize:13}}>{gOk?"✅":"❌"}</span>
@@ -762,17 +872,17 @@ function MatchRow({m, onUpdate, editMode, isKO}) {
 function PredBtn({val, current, onChange, disabled}) {
   const active = val===current;
   const cfg = {
-    "1":{a:"#1A5276",i:"#D6EAF8",af:"#fff",if:"#1A5276"},
-    "X":{a:"#5D6D7E",i:"#EAECEE",af:"#fff",if:"#5D6D7E"},
-    "2":{a:"#922B21",i:"#FDECEA",af:"#fff",if:"#922B21"},
+    "1":{a:T.jBlue,i:"#E4F2F6",af:"#fff",if:T.jBlue},
+    "X":{a:"#7B7066",i:"#EFE9DD",af:"#fff",if:"#7B7066"},
+    "2":{a:T.red,i:"#F7E2E2",af:"#fff",if:T.red},
   };
   const c = cfg[val];
   return (
     <button disabled={disabled} onClick={()=>onChange(active?"":val)}
-      style={{padding:"2px 7px",borderRadius:4,border:"1px solid #BDC3C7",
-        background:active?c.a:c.i,color:active?c.af:c.if,
-        fontWeight:700,fontSize:12,cursor:disabled?"default":"pointer",
-        minWidth:26,transition:"all 0.12s"}}>
+      style={{width:25,height:24,borderRadius:6,border:`2px solid ${active?c.a:T.line}`,
+        background:active?c.a:"#fff",color:active?c.af:c.if,
+        fontFamily:FONT_DISPLAY,fontSize:12,cursor:disabled?"default":"pointer",
+        transition:"all 0.12s",display:"flex",alignItems:"center",justifyContent:"center"}}>
       {val}
     </button>
   );
@@ -782,8 +892,8 @@ function GoalInput({val, onChange}) {
   return (
     <input type="number" min={0} max={30} value={val??""} 
       onChange={e=>onChange(e.target.value===""?null:parseInt(e.target.value))}
-      style={{width:36,textAlign:"center",padding:"2px 3px",
-        border:"1px solid #BDC3C7",borderRadius:4,
-        background:"#D5F5E3",color:"#1E8449",fontWeight:700,fontSize:13}}/>
+      style={{width:38,textAlign:"center",padding:"3px 3px",
+        border:`2px solid ${T.green}`,borderRadius:5,
+        background:"#E3F1E6",color:T.green,fontFamily:FONT_DISPLAY,fontSize:14}}/>
   );
 }
