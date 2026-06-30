@@ -401,7 +401,7 @@ export default function App() {
     // Priority: saved DB team → fixed team in INITIAL_KO → resolved from standings/winners
     const homeTeam = d.home_team || m.homeTeam || resolveLabel(labels[0], standings);
     const awayTeam = d.away_team || m.awayTeam || resolveLabel(labels[1], standings);
-    const res = getResult(d.goals_home, d.goals_away);
+    const res = getKOResult(d.goals_home, d.goals_away, d.pens_home, d.pens_away);
     if (res && homeTeam && awayTeam) {
       winnerMap[m.id] = res==="1"?homeTeam:res==="2"?awayTeam:null;
       loserMap[m.id] = res==="1"?awayTeam:res==="2"?homeTeam:null;
