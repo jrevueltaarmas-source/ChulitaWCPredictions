@@ -19,14 +19,12 @@ function normTeam(name) {
   return TEAM_MAP[trimmed] || trimmed;
 }
 
-// openfootball worldcup.json — public domain, no API key, no CORS issues
 const SOURCES = [
   "https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json",
   "https://cdn.jsdelivr.net/gh/openfootball/worldcup.json@master/2026/worldcup.json",
 ];
 
 function parseOpenfootball(data) {
-  // The matches can be either directly in data.matches OR nested in data.rounds[].matches
   let allMatches = [];
   if (Array.isArray(data.matches)) {
     allMatches = data.matches;
@@ -37,15 +35,29 @@ function parseOpenfootball(data) {
   const results = [];
   allMatches.forEach(m => {
     const sc = m.score;
-    let gh = null, ga = null;
-    if (sc && Array.isArray(sc.ft)) {
-      gh = sc.ft[0]; ga = sc.ft[1];
-    }
+    if (!sc) return;
+    const ft = Array.isArray(sc.ft) ? sc.ft : null;       // 90 minutes
+    const et = Array.isArray(sc.et) ? sc.et : null;       // after extra time
+    const p  = Array.isArray(sc.p)  ? sc.p  : null;       // penalty shootout
+
+    // Result to DISPLAY = after extra time if it exists, else full time
+    const shown = et || ft;
+    if (!shown) return;
+    const gh = shown[0], ga = shown[1];
     if (gh === null || ga === null || gh === undefined || ga === undefined) return;
+
     const home = normTeam(m.team1?.name || m.team1);
     const away = normTeam(m.team2?.name || m.team2);
     if (!home || !away) return;
-    results.push({ home, away, goalsHome: parseInt(gh), goalsAway: parseInt(ga) });
+
+    results.push({
+      home, away,
+      goalsHome: parseInt(gh),
+      goalsAway: parseInt(ga),
+      // Penalty shootout (only present in knockouts that went to pens)
+      pensHome: p ? parseInt(p[0]) : null,
+      pensAway: p ? parseInt(p[1]) : null,
+    });
   });
   return results.filter(g => !isNaN(g.goalsHome) && !isNaN(g.goalsAway));
 }
