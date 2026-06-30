@@ -67,6 +67,20 @@ function getResult(h, a) {
   if (h > a) return "1"; if (h < a) return "2"; return "X";
 }
 
+// Knockout prediction result: "1" if home advances, "2" if away advances, "" if undecided.
+// Uses goals (after extra time) first; if tied, uses penalty shootout.
+function getKOResult(gh, ga, ph, pa) {
+  if (gh === null || gh === undefined || ga === null || ga === undefined) return "";
+  if (gh > ga) return "1";
+  if (ga > gh) return "2";
+  // Tied on the pitch → look at penalties
+  if (ph !== null && ph !== undefined && pa !== null && pa !== undefined) {
+    if (ph > pa) return "1";
+    if (pa > ph) return "2";
+  }
+  return ""; // tied and no penalty data yet → undecided
+}
+
 function calcStandings(matches) {
   const table = {};
   Object.entries(GROUP_TEAMS).forEach(([g, teams]) => {
@@ -141,6 +155,7 @@ export default function App() {
           if (r.type === "gs") gs[r.id] = { goals_home: r.goals_home, goals_away: r.goals_away,
                                              joaquin: r.joaquin || "", giada: r.giada || "" };
           if (r.type === "ko") ko[r.id] = { goals_home: r.goals_home, goals_away: r.goals_away,
+                                             pens_home: r.pens_home ?? null, pens_away: r.pens_away ?? null,
                                              joaquin: r.joaquin || "", giada: r.giada || "",
                                              home_team: r.home_team || "", away_team: r.away_team || "" };
         });
@@ -230,21 +245,30 @@ export default function App() {
           if (!match) return;
           const gh = match.home === m.homeTeam ? match.goalsHome : match.goalsAway;
           const ga = match.home === m.homeTeam ? match.goalsAway : match.goalsHome;
-          if (prev[m.id]?.goals_home !== gh || prev[m.id]?.goals_away !== ga) {
-            next[m.id] = { ...(prev[m.id] || {}), goals_home: gh, goals_away: ga };
+          // Penalties (oriented to home/away of our fixture)
+          const ph = match.pensHome === null || match.pensHome === undefined ? null
+                   : (match.home === m.homeTeam ? match.pensHome : match.pensAway);
+          const pa = match.pensHome === null || match.pensHome === undefined ? null
+                   : (match.home === m.homeTeam ? match.pensAway : match.pensHome);
+          if (prev[m.id]?.goals_home !== gh || prev[m.id]?.goals_away !== ga ||
+              prev[m.id]?.pens_home !== ph || prev[m.id]?.pens_away !== pa) {
+            next[m.id] = { ...(prev[m.id] || {}), goals_home: gh, goals_away: ga,
+                           pens_home: ph, pens_away: pa };
             changed = true;
-            // Update ONLY goals + team names — never touch predictions.
+            // Update ONLY goals + penalties + team names — never touch predictions.
             (async () => {
               const { data: existing } = await supabase
                 .from("matches").select("id").eq("id", m.id).maybeSingle();
               if (existing) {
                 await supabase.from("matches")
                   .update({ goals_home: gh, goals_away: ga,
+                            pens_home: ph, pens_away: pa,
                             home_team: m.homeTeam, away_team: m.awayTeam })
                   .eq("id", m.id);
               } else {
                 await supabase.from("matches").insert({
                   id: m.id, type: "ko", goals_home: gh, goals_away: ga,
+                  pens_home: ph, pens_away: pa,
                   joaquin: "", giada: "",
                   home_team: m.homeTeam, away_team: m.awayTeam
                 });
@@ -394,7 +418,7 @@ export default function App() {
     return a;
   }, {j:0,g:0});
   const koScore = koMatches.reduce((a,m) => {
-    const res = getResult(m.goals_home, m.goals_away);
+    const res = getKOResult(m.goals_home, m.goals_away, m.pens_home, m.pens_away);
     if (!res) return a;
     if (m.joaquin===res) a.j++;
     if (m.giada===res) a.g++;
@@ -619,7 +643,7 @@ function Legend({isKO}) {
     <div style={{fontSize:10,color:"#888",marginBottom:10,padding:"6px 10px",
       background:"#F8F9FA",borderRadius:6,border:"1px solid #E0E0E0"}}>
       {isKO
-        ? "Prediction: 1 = Home win at 90' · 2 = Away win at 90' · Goals auto-calculate result · ✅ correct ❌ wrong"
+        ? "Prediction: 1 = Home advances · 2 = Away advances · Result shown after extra time; penalties decide ties · ✅ correct ❌ wrong"
         : "Prediction: 1 = Home win · X = Draw · 2 = Away win · Enter goals to auto-calculate result · ✅ correct ❌ wrong"}
     </div>
   );
@@ -628,8 +652,11 @@ function Legend({isKO}) {
 // ─── Match Row ────────────────────────────────────────────────────────────────
 function MatchRow({m, onUpdate, editMode, isKO}) {
   const gh = m.goals_home, ga = m.goals_away;
-  const res = getResult(gh, ga);
+  // In knockouts, the "result" (who advances) considers penalties; in groups it's 1/X/2.
+  const res = isKO ? getKOResult(gh, ga, m.pens_home, m.pens_away) : getResult(gh, ga);
   const played = gh !== null && gh !== undefined && ga !== null && ga !== undefined;
+  const hasPens = m.pens_home !== null && m.pens_home !== undefined &&
+                  m.pens_away !== null && m.pens_away !== undefined;
   const jOk = res && m.joaquin===res;
   const gOk = res && m.giada===res;
   const preds = isKO ? ["1","2"] : ["1","X","2"];
@@ -674,9 +701,18 @@ function MatchRow({m, onUpdate, editMode, isKO}) {
           <GoalInput val={ga} onChange={v=>onUpdate(m.id,"goals_away",v)}/>
         </div>
       ) : (
-        <div style={{minWidth:46,textAlign:"center",fontWeight:800,fontSize:13,
-          color:"#1C1C1C",flexShrink:0}}>
-          {played ? `${gh} – ${ga}` : <span style={{color:"#ccc",fontSize:11}}>vs</span>}
+        <div style={{minWidth:46,display:"flex",flexDirection:"column",
+          alignItems:"center",flexShrink:0}}>
+          <div style={{fontWeight:800,fontSize:13,color:"#1C1C1C"}}>
+            {played ? `${gh} – ${ga}` : <span style={{color:"#ccc",fontSize:11}}>vs</span>}
+          </div>
+          {hasPens && (
+            <div style={{fontSize:9,fontWeight:700,color:"#D35400",
+              background:"#FEF5E7",borderRadius:3,padding:"0 4px",marginTop:1,
+              whiteSpace:"nowrap"}}>
+              pen {m.pens_home}-{m.pens_away}
+            </div>
+          )}
         </div>
       )}
 
